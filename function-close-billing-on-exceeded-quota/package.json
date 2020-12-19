@@ -1,0 +1,8 @@
+{
+  "name": "function-close-billing-on-exceeded-quota",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {},
+  "author": "Grzegorz Lipecki <grzegorz.lipecki@gmail.com>",
+  "license": "MIT"
+}
