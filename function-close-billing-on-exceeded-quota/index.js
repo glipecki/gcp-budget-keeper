@@ -3,11 +3,11 @@ const TelegramBot = require('node-telegram-bot-api');
 const config = JSON.parse(process.env.CONFIG_JSON);
 
 exports.closeBillingOnExceededQuota = async ev => {
-    const data = Buffer.from(ev.data, 'base64').toString();
     const {
         billingAccountId,
         budgetId
     } = ev.attributes;
+    const data = JSON.parse(Buffer.from(ev.data, 'base64').toString());
     const {
         budgetDisplayName, // "My Personal Budget - The human-readable name assigned to the budget.
         alertThresholdExceeded, // 1.0
@@ -22,7 +22,7 @@ exports.closeBillingOnExceededQuota = async ev => {
         await onNotifyThresholdExceeded(budgetDisplayName, alertThresholdExceeded, costAmount, budgetAmount);
     }
     if (config.cutOff && alertThresholdExceeded >= config.thresholds.cutOff || 0.8) {
-        await onCutOffThresholdExceeded(billingAccountId, budgetDisplayName, alertThresholdExceeded, costAmount, budgetAmount);
+        await onCutOffThresholdExceeded(ev.attributes.billingAccountId, budgetDisplayName, alertThresholdExceeded, costAmount, budgetAmount);
     }
 };
 
