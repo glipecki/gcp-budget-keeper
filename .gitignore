@@ -4,3 +4,4 @@ build/
 .idea/
 *.iml
 env-*.tfvars
+node_modules/
