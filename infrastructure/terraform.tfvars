@@ -12,3 +12,4 @@ gcp_service_list = [
   "cloudfunctions.googleapis.com",
   "cloudbuild.googleapis.com"
 ]
+function-close-billing-on-exceeded-quota-config-json = {}

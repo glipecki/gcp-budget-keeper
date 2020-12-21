@@ -4,5 +4,8 @@
   "main": "index.js",
   "scripts": {},
   "author": "Grzegorz Lipecki <grzegorz.lipecki@gmail.com>",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "node-telegram-bot-api": "^0.50.0"
+  }
 }

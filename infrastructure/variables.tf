@@ -12,3 +12,4 @@ variable "gcp_service_list" {
   description = "List of GCP service to be enabled for a project."
   type        = list
 }
+variable "function-close-billing-on-exceeded-quota-config-json" {}

@@ -28,4 +28,7 @@ resource "google_cloudfunctions_function" "close-billing-on-exceeded-quota" {
     event_type = "google.pubsub.topic.publish"
     resource = google_pubsub_topic.payoffs-mail-pubsub.name
   }
+  environment_variables = {
+    CONFIG_JSON = jsonencode(var.function-close-billing-on-exceeded-quota-config-json)
+  }
 }
