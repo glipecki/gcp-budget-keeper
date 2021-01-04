@@ -6,6 +6,9 @@
   "author": "Grzegorz Lipecki <grzegorz.lipecki@gmail.com>",
   "license": "MIT",
   "dependencies": {
-    "node-telegram-bot-api": "^0.50.0"
+    "@google-cloud/billing": "^2.1.3",
+    "google-auth-library": "6.1.3",
+    "googleapis": "66.0.0",
+    "node-telegram-bot-api": "0.50.0"
   }
 }

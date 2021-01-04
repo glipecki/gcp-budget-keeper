@@ -1,48 +1,100 @@
+const {CloudBillingClient} = require('@google-cloud/billing');
+
+const billingClient = new CloudBillingClient();
 const TelegramBot = require('node-telegram-bot-api');
 
-const config = JSON.parse(process.env.CONFIG_JSON);
+console.log(`Starting closeBillingOnExceededQuota`);
 
 exports.closeBillingOnExceededQuota = async ev => {
-    const {
-        billingAccountId,
-        budgetId
-    } = ev.attributes;
-    const data = JSON.parse(Buffer.from(ev.data, 'base64').toString());
-    const {
-        budgetDisplayName, // "My Personal Budget - The human-readable name assigned to the budget.
-        alertThresholdExceeded, // 1.0
-        costAmount, // 140.321 - The amount of costs accrued. The type of costs tracked depends on budget filters & settings.
-        costIntervalStart, // "2018-02-01T08:00:00Z" - The start of the budget alert period. Cost reported includes costs for usage starting at this time. Currently, this is the first day of the month during which the budget usage occurred.
-        budgetAmount, // 152.557 - The amount allocated in the budget.
-        budgetAmountType, // "SPECIFIED_AMOUNT" - The budget amount type. This can be either "SPECIFIED_AMOUNT" (a fixed amount) or "LAST_MONTH_COST" (last month's costs).
-        currencyCode // "USD" - The budget alert currency. All costs and budget alert amounts are in this currency.
-    } = data;
-    console.log(`Pub/Sub notification data: ${JSON.stringify(data)}`);
-    if (config.notifications && alertThresholdExceeded >= config.thresholds.notify || 0.5) {
-        await onNotifyThresholdExceeded(budgetDisplayName, alertThresholdExceeded, costAmount, budgetAmount);
-    }
-    if (config.cutOff && alertThresholdExceeded >= config.thresholds.cutOff || 0.8) {
-        await onCutOffThresholdExceeded(ev.attributes.billingAccountId, budgetDisplayName, alertThresholdExceeded, costAmount, budgetAmount);
+    const {billingAccountId} = ev.attributes;
+    const billingConfig = JSON.parse(process.env.CONFIG_JSON)[billingAccountId];
+    if (billingConfig) {
+        const eventData = JSON.parse(Buffer.from(ev.data, 'base64').toString());
+        console.log(`Pub/Sub notification data: ${JSON.stringify(eventData)}`);
+        if (billingConfig.cutOff && (eventData.alertThresholdExceeded || 0) >= (billingConfig.cutOff.threshold || 0.8)) {
+            await onCutOffThresholdExceeded(billingConfig, billingAccountId, eventData);
+        } else if (billingConfig.notifications && (eventData.alertThresholdExceeded || 0) >= (billingConfig.notifications.threshold || 0.5)) {
+            await onNotifyThresholdExceeded(billingConfig, eventData);
+        }
+    } else {
+        console.log(`Unknown billing account id ${billingAccountId}`);
     }
 };
 
-async function onNotifyThresholdExceeded(budgetDisplayName, alertThresholdExceeded, costAmount, budgetAmount) {
-    console.log(`Notify threshold exceeded [budgetDisplayName=${budgetDisplayName}, alertThresholdExceeded=${alertThresholdExceeded}, costAmount=${costAmount}, budgetAmount=${budgetAmount}]`);
-    if (config.notifications) {
-        await Promise.all(config.notifications.map(async notification => {
-            const message = `Budget ${budgetDisplayName} exceeded ${alertThresholdExceeded * 100}% of budget (${costAmount}/${budgetAmount})`;
-            if (notification.type === 'telegram') {
-                console.log(`Sending notification via ${notification.type} [chatId=${notification.chatId}]: ${message}`);
-                await new TelegramBot(notification.botToken)
-                    .sendMessage(
-                        notification.chatId,
-                        message
-                    );
-            }
-        }));
+async function onNotifyThresholdExceeded(config, {
+    budgetDisplayName,
+    alertThresholdExceeded,
+    costAmount,
+    budgetAmount,
+    currencyCode
+}) {
+    console.log(`Notify threshold exceeded [budgetDisplayName=${budgetDisplayName}, alertThresholdExceeded=${alertThresholdExceeded}, costAmount=${costAmount}, budgetAmount=${budgetAmount}${currencyCode}]`);
+    if (config.notifications && config.notifications.endpoints) {
+        await sendNotifications(
+            config.notifications.endpoints,
+            `Budget ${budgetDisplayName} exceeded warning threshold (${alertThresholdExceeded * 100}% - ${costAmount}/${budgetAmount}${currencyCode})`
+        );
     }
 }
 
-async function onCutOffThresholdExceeded(billingAccountId, budgetDisplayName, alertThresholdExceeded, costAmount, budgetAmount) {
-    console.log(`Cut off threshold exceeded [budgetDisplayName=${budgetDisplayName}, alertThresholdExceeded=${alertThresholdExceeded}, costAmount=${costAmount}, budgetAmount=${budgetAmount}]`);
+async function onCutOffThresholdExceeded(config, billingAccountId, {
+    budgetDisplayName,
+    alertThresholdExceeded,
+    costAmount,
+    budgetAmount,
+    currencyCode
+}) {
+    console.log(`Cut off threshold exceeded [budgetDisplayName=${budgetDisplayName}, alertThresholdExceeded=${alertThresholdExceeded}, costAmount=${costAmount}, budgetAmount=${budgetAmount}${currencyCode}]`);
+
+    const projects = await listProjectBillingInfo(`billingAccounts/${billingAccountId}`);
+    const projectsString = projects.map(project => `(${project.projectId}:billing:${project.billingEnabled})    `).join(', ');
+    console.log(`found projects for billing account: ${projectsString}`);
+    await Promise.all(
+        projects
+            .filter(project => project.billingEnabled)
+            .filter(project => config.cutOff.all || config.cutOff.projects.indexOf(project.projectId) > -1)
+            .map(async project => {
+                console.log(`disabling billing for project: ${project.projectId}`);
+                return await billingClient.updateProjectBillingInfo({
+                    name: `projects/${project.projectId}`,
+                    projectBillingInfo: null
+                });
+            })
+    );
+    if (config.notifications && config.notifications.endpoints) {
+        const disableForProjects = projects
+            .filter(project => config.cutOff.all || config.cutOff.projects.indexOf(project.projectId) > -1)
+            .map(project => project.projectId)
+            .join(',');
+        const message =
+            `Budget ${budgetDisplayName} exceeded emergency cut off threshold (${alertThresholdExceeded * 100}% - ${costAmount}/${budgetAmount}${currencyCode})\n`
+            + `Disabling billing for projects: ${disableForProjects}!`
+        await sendNotifications(
+            config.notifications.endpoints,
+            message
+        );
+    }
+}
+
+async function sendNotifications(endpoints, message) {
+    await Promise.all(endpoints.map(async endpoint => {
+        if (endpoint.type === 'telegram') {
+            console.log(`Sending notification via ${endpoint.type} [chatId=${endpoint.chatId}]: ${message}`);
+            await new TelegramBot(endpoint.botToken).sendMessage(
+                endpoint.chatId,
+                message
+            );
+        }
+    }));
+}
+
+async function listProjectBillingInfo(name) {
+    const result = [];
+    const billingInfoResult = await billingClient.listProjectBillingInfo({
+        name
+    });
+    billingInfoResult
+        .filter(billing => Array.isArray(billing))
+        .forEach(projects => result.push(...projects))
+    return result;
 }

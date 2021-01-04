@@ -4,5 +4,6 @@ resource "google_project_service" "gcp_services" {
   project = var.gcp-project
   service = var.gcp_service_list[count.index]
 
-  disable_dependent_services = true
+  disable_dependent_services = false
+  disable_on_destroy = false
 }
